@@ -1,0 +1,8 @@
+mongomock==4.3.0
+moto==5.2.3
+boto3==1.43.106
+chromadb==1.5.9
+scikit-learn==1.8.0
+matplotlib==3.10.9
+pytest==9.1.1
+python-pptx
