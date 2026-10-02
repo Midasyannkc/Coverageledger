@@ -15,11 +15,15 @@ def test_naive_pmpm_silently_zeroes_out_the_misidentified_client():
     buggy = results[BUGGY_CLIENT_GROUP_CODE]
     # BUG: the legacy loader wrote this client's enrollment_events under its
     # EIN instead of its group_code, so a naive group_code join finds ZERO
-    # enrolled members for a client that has real claims paid -- and the
-    # report does not error, it just silently reports an undefined PMPM.
+    # enrolled members for a client that has real claims paid -- the report
+    # does not error, it silently reports a zero census for a client with
+    # real utilization. (PMPM itself is unaffected since it is computed
+    # from claims-derived member-months, not the enrollment join -- the
+    # corruption lands specifically in the census/headcount figure, which
+    # is exactly the kind of number a reconciliation mindset has to catch.)
     assert buggy["enrolled"] == 0
     assert buggy["paid"] > 0
-    assert buggy["pmpm"] is None
+    assert buggy["pmpm"] is not None  # claims-derived PMPM looks fine, masking the real problem
 
     # every other client resolves fine
     others = [v for k, v in results.items() if k != BUGGY_CLIENT_GROUP_CODE]

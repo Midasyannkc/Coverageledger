@@ -1,29 +1,44 @@
 """
-Compute PMPM (per-member-per-month) rollups per client from claims,
-reconciled against the enrolled member count from enrollment_events --
-the JD's "PMPM/PEPM rollups" reporting requirement plus its "reconciliation
+Compute PMPM (per-member-per-month) rollups and census (enrolled headcount)
+per client from claims and enrollment_events -- the JD's "PMPM/PEPM
+rollups" and "census" reporting requirements plus its "reconciliation
 mindset" requirement in one report.
+
+PMPM = total paid claims / member-months observed (one claims row per
+enrolled member per month, by construction -- see
+data/synthetic/GENERATION_NOTES.md), which is independent of the
+enrollment-headcount join bug below. Enrolled headcount (census) comes
+from enrollment_events and IS affected by that bug, since census reporting
+is exactly where a silently-dropped client would be caught.
 """
 from collections import defaultdict
 
 
-def _claims_paid_by_group(db):
-    totals = defaultdict(float)
+def _claims_by_group(db):
+    paid = defaultdict(float)
+    member_months = defaultdict(int)
     for c in db.claims.find():
-        totals[c["group_code"]] += c["paid_amount"]
-    return totals
+        paid[c["group_code"]] += c["paid_amount"]
+        member_months[c["group_code"]] += 1
+    return paid, member_months
 
 
 def pmpm_naive(db):
     """Naive join: enrollment_events.group_code straight against clients.group_code."""
-    claims_paid = _claims_paid_by_group(db)
+    claims_paid, member_months = _claims_by_group(db)
     results = {}
     for client in db.clients.find():
         gc = client["group_code"]
         n_enrolled = db.enrollment_events.count_documents({"group_code": gc, "event_type": "add"})
         paid = claims_paid.get(gc, 0.0)
-        pmpm = (paid / n_enrolled) if n_enrolled else None
-        results[gc] = {"paid": round(paid, 2), "enrolled": n_enrolled, "pmpm": round(pmpm, 2) if pmpm else None}
+        mm = member_months.get(gc, 0)
+        pmpm_value = (paid / mm) if mm else None
+        results[gc] = {
+            "paid": round(paid, 2),
+            "enrolled": n_enrolled,
+            "member_months": mm,
+            "pmpm": round(pmpm_value, 2) if pmpm_value else None,
+        }
     return results
 
 
@@ -36,7 +51,7 @@ def pmpm(db):
     "normalize across the many identifier systems" requirement applied
     directly, rather than assuming a single foreign key always matches.
     """
-    claims_paid = _claims_paid_by_group(db)
+    claims_paid, member_months = _claims_by_group(db)
     results = {}
     for client in db.clients.find():
         gc = client["group_code"]
@@ -44,10 +59,12 @@ def pmpm(db):
             {"group_code": {"$in": [gc, client["ein"]]}, "event_type": "add"}
         )
         paid = claims_paid.get(gc, 0.0)
-        pmpm_value = (paid / n_enrolled) if n_enrolled else None
+        mm = member_months.get(gc, 0)
+        pmpm_value = (paid / mm) if mm else None
         results[gc] = {
             "paid": round(paid, 2),
             "enrolled": n_enrolled,
+            "member_months": mm,
             "pmpm": round(pmpm_value, 2) if pmpm_value else None,
         }
     return results
